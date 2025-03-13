@@ -60,6 +60,7 @@ interface LeadGenieResult {
 
 // Base API URL
 const API_BASE_URL = "http://13.233.233.139:8080";
+const DEFAULT_API_KEY = "f3BUczDcVEkEQhwJeiaa8aY3mxXr3Hzyip-rYB0p2Yk"; // Fallback API key for testing
 
 export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -76,7 +77,7 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
   const [savedApiKey, setSavedApiKey] = useState<ApiKeyData | null>(null);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [activeTab, setActiveTab] = useState("json");
-  const [useProxy, setUseProxy] = useState(false);
+  // Removed unused proxy state
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -217,16 +218,14 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
       return;
     }
 
-    const currentApiKey = savedApiKey?.api_key || apiKey.trim();
+    // Use saved API key, entered API key, or fallback to default for testing
+    const currentApiKey =
+      savedApiKey?.api_key || apiKey.trim() || DEFAULT_API_KEY;
 
-    if (!currentApiKey) {
-      toast({
-        title: "Error",
-        description: "Please enter and save your API key first",
-        variant: "destructive",
-      });
-      return;
-    }
+    console.log(
+      "Using API key:",
+      currentApiKey ? "[REDACTED]" : "No API key provided",
+    );
 
     setIsProcessing(true);
     setProgress(0);
@@ -264,16 +263,20 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
         our_product: ourProduct,
       });
 
+      const payload = {
+        target_company: targetCompany,
+        our_product: ourProduct,
+      };
+
+      console.log("Request payload:", JSON.stringify(payload));
+
       const response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "X-API-Key": currentApiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          target_company: targetCompany,
-          our_product: ourProduct,
-        }),
+        body: JSON.stringify(payload),
       });
 
       console.log("API response status:", response.status);
@@ -314,7 +317,9 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
         response: data,
       });
 
-      if (!data.success && data.message) {
+      console.log("API response data:", data);
+
+      if (!data.success) {
         throw new Error(data.message || "Unknown error occurred.");
       }
 
@@ -393,24 +398,33 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
           response: data,
         });
 
-        // Update progress
-        if (data.status === "in_progress") {
+        // Update progress based on task status
+        console.log("Poll response data:", data);
+
+        // Check for task status in the format returned by the API
+        const taskStatus = data.data?.task_status || data.status;
+
+        if (taskStatus === "processing" || taskStatus === "in_progress") {
           // Simulate progress since the API might not provide it
           setProgress((prev) => (prev < 90 ? prev + 5 : prev));
           console.log(`Task in progress, updated progress to ${progress}%`);
-        } else if (data.status === "completed") {
+        } else if (taskStatus === "completed") {
           clearInterval(interval);
           console.log("Task completed, setting results");
           setProgress(100);
-          setResult(JSON.stringify(data.result, null, 2));
-          setParsedResult(data.result);
+
+          // Handle different response formats
+          const resultData = data.data?.result || data.result;
+          setResult(JSON.stringify(resultData, null, 2));
+          setParsedResult(resultData);
           setIsProcessing(false);
-        } else if (data.status === "failed") {
+        } else if (taskStatus === "failed") {
           clearInterval(interval);
-          console.error("Task failed:", data.error);
+          const errorMsg = data.data?.error || data.error || "Task failed";
+          console.error("Task failed:", errorMsg);
           toast({
             title: "Error",
-            description: data.error || "Task failed",
+            description: errorMsg,
             variant: "destructive",
           });
           setIsProcessing(false);
@@ -759,6 +773,9 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
                           </p>
                           <p className="mt-1">
                             Polling URL: {API_BASE_URL}/task/{requestId}
+                          </p>
+                          <p className="mt-1 text-blue-600">
+                            Status: {progress < 100 ? "Processing" : "Complete"}
                           </p>
                         </>
                       )}

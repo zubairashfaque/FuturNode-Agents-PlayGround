@@ -59,14 +59,7 @@ interface LeadGenieResult {
 }
 
 // Base API URL
-const API_BASE_URL = "https://13.233.233.139:8080";
-// CORS Proxy URL
-const CORS_PROXY_URL = "https://corsproxy.io/?";
-
-// Function to create a proxied URL
-const createProxiedUrl = (url: string) => {
-  return `${CORS_PROXY_URL}${encodeURIComponent(url)}`;
-};
+const API_BASE_URL = "http://13.233.233.139:8080";
 
 export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -83,7 +76,7 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
   const [savedApiKey, setSavedApiKey] = useState<ApiKeyData | null>(null);
   const [isSavingKey, setIsSavingKey] = useState(false);
   const [activeTab, setActiveTab] = useState("json");
-  const [useProxy, setUseProxy] = useState(true);
+  const [useProxy, setUseProxy] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -224,7 +217,6 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
       return;
     }
 
-    // Check if API key is available - use the current input value if no saved key exists
     const currentApiKey = savedApiKey?.api_key || apiKey.trim();
 
     if (!currentApiKey) {
@@ -243,184 +235,97 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
     setRequestId(null);
 
     try {
-      // Determine the URL to use (proxied or direct)
-      const apiEndpoint = `${API_BASE_URL}/agents/sales-contact-finder`;
-      const requestUrl = useProxy ? createProxiedUrl(apiEndpoint) : apiEndpoint;
+      const apiEndpoint = `${API_BASE_URL}/agents/sales-contact-finder`; // Note: http not https
 
-      // Log the request parameters for debugging
-      console.log("Making API request with parameters:", {
-        target_company: targetCompany,
-        our_product: ourProduct,
-        api_key: currentApiKey.substring(0, 3) + "...", // Log only first few chars of API key for security
-        url: requestUrl,
-        using_proxy: useProxy,
-      });
-
-      // Attempt to make the actual API call
-      try {
-        // Create a unique ID for this API call for logging
-        const requestStartTime = Date.now();
-        const logId = logApiCall({
-          method: "POST",
-          url: requestUrl,
-          headers: {
-            "X-API-Key": "[REDACTED]",
-            "Content-Type": "application/json",
-          },
-          body: {
-            target_company: targetCompany,
-            our_product: ourProduct,
-          },
-        });
-
-        console.log("Initiating Task (Sales Contact Finder)");
-        console.log(`URL: ${requestUrl}`);
-        console.log("Method: POST");
-        console.log("Headers:", {
-          "X-API-Key": currentApiKey.substring(0, 5) + "...", // Only show first few chars for security
+      // Create a unique ID for this API call for logging
+      const requestStartTime = Date.now();
+      const logId = logApiCall({
+        method: "POST",
+        url: apiEndpoint,
+        headers: {
+          "X-API-Key": "[REDACTED]",
           "Content-Type": "application/json",
-        });
-        console.log("Body:", {
+        },
+        body: {
           target_company: targetCompany,
           our_product: ourProduct,
-        });
+        },
+      });
 
-        // Simplified request headers
-        const headers = {
+      console.log("Initiating Task (Sales Contact Finder)");
+      console.log(`URL: ${apiEndpoint}`);
+      console.log("Method: POST");
+      console.log("Headers:", {
+        "X-API-Key": currentApiKey.substring(0, 5) + "...", // Only show first few chars for security
+        "Content-Type": "application/json",
+      });
+      console.log("Body:", {
+        target_company: targetCompany,
+        our_product: ourProduct,
+      });
+
+      const response = await fetch(apiEndpoint, {
+        method: "POST",
+        headers: {
           "X-API-Key": currentApiKey,
           "Content-Type": "application/json",
-        };
+        },
+        body: JSON.stringify({
+          target_company: targetCompany,
+          our_product: ourProduct,
+        }),
+      });
 
-        const response = await fetch(requestUrl, {
-          method: "POST",
-          headers: headers,
-          body: JSON.stringify({
-            target_company: targetCompany,
-            our_product: ourProduct,
-          }),
-        });
+      console.log("API response status:", response.status);
 
-        console.log("API response status:", response.status);
+      // Log response headers for debugging
+      const responseHeaders = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+      console.log("API response headers:", responseHeaders);
 
-        // Log response headers for debugging
-        const responseHeaders = {};
-        response.headers.forEach((value, key) => {
-          responseHeaders[key] = value;
-        });
-        console.log("API response headers:", responseHeaders);
+      // Update the API call log with response information
+      updateApiLog(logId, {
+        status: response.status,
+        duration: Date.now() - requestStartTime,
+      });
 
-        // Update the API call log with response information
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("API error response:", errorText);
+
+        // Update the API call log with error information
         updateApiLog(logId, {
-          status: response.status,
-          duration: Date.now() - requestStartTime,
+          error: `HTTP error! status: ${response.status}, message: ${errorText}`,
+          response: errorText,
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("API error response:", errorText);
-
-          // Update the API call log with error information
-          updateApiLog(logId, {
-            error: `HTTP error! status: ${response.status}, message: ${errorText}`,
-            response: errorText,
-          });
-
-          throw new Error(
-            `HTTP error! status: ${response.status}, message: ${errorText}`,
-          );
-        }
-
-        const data = await response.json();
-        console.log("API response data:", data);
-
-        // Update the API call log with response data
-        updateApiLog(logId, {
-          response: data,
-        });
-
-        setRequestId(data.request_id);
-
-        // Start polling for results
-        pollForResults(data.request_id, currentApiKey);
-      } catch (apiError) {
-        console.error("API call failed:", apiError);
-
-        // Log the error to the console with more details
-        console.error("Error details:", {
-          message: apiError.message,
-          name: apiError.name,
-          stack: apiError.stack,
-          isCORSError:
-            apiError.message.includes("CORS") ||
-            apiError.message.includes("Failed to fetch"),
-        });
-
-        // Create a more detailed error message
-        let errorMessage = `Failed to connect to server: ${apiError.message}`;
-        let errorTips = "";
-
-        if (
-          apiError.message.includes("Failed to fetch") ||
-          apiError.message.includes("NetworkError")
-        ) {
-          errorTips =
-            "This may be due to network connectivity issues, CORS restrictions, or the API server being unavailable.";
-        } else if (apiError.message.includes("CORS")) {
-          errorTips =
-            "This is a CORS policy error. The API server may not allow requests from this origin.";
-        }
-
-        // If using direct connection failed, suggest trying the proxy
-        if (!useProxy) {
-          errorTips += " Try enabling the CORS proxy option.";
-        }
-
-        toast({
-          title: "API Connection Error",
-          description: (
-            <div>
-              <p>{errorMessage}</p>
-              {errorTips && (
-                <p className="text-sm mt-1 text-amber-600">{errorTips}</p>
-              )}
-              <div className="flex space-x-2 mt-3">
-                <button
-                  onClick={() => window.open("/debug", "_blank")}
-                  className="underline text-blue-500 text-sm"
-                >
-                  View Logs
-                </button>
-                {!useProxy && (
-                  <button
-                    onClick={() => {
-                      setUseProxy(true);
-                      setTimeout(() => handleSubmit(), 500);
-                    }}
-                    className="underline text-blue-500 text-sm"
-                  >
-                    Try with Proxy
-                  </button>
-                )}
-                <button
-                  onClick={() => handleSubmit()}
-                  className="underline text-blue-500 text-sm"
-                >
-                  Retry Request
-                </button>
-              </div>
-            </div>
-          ),
-          variant: "destructive",
-          duration: 15000,
-        });
-
-        setIsProcessing(false);
+        throw new Error(
+          `HTTP error! status: ${response.status}, message: ${errorText}`,
+        );
       }
-    } catch (error) {
+
+      const data = await response.json();
+      console.log("API response data:", data);
+
+      // Update the API call log with response data
+      updateApiLog(logId, {
+        response: data,
+      });
+
+      if (!data.success && data.message) {
+        throw new Error(data.message || "Unknown error occurred.");
+      }
+
+      setRequestId(data.request_id);
+      pollForResults(data.request_id, currentApiKey);
+    } catch (error: any) {
       console.error("Error starting task:", error);
       toast({
         title: "Error",
-        description: "Failed to start the task. Please try again.",
+        description:
+          error.message || "Failed to start the task. Please try again.",
         variant: "destructive",
       });
       setIsProcessing(false);
@@ -431,14 +336,10 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
     console.log(`Starting to poll for results with request ID: ${requestId}`);
     const interval = setInterval(async () => {
       try {
-        // Determine the URL to use (proxied or direct)
         const apiEndpoint = `${API_BASE_URL}/task/${requestId}`;
-        const requestUrl = useProxy
-          ? createProxiedUrl(apiEndpoint)
-          : apiEndpoint;
 
         console.log(`Polling for task status: ${requestId}`);
-        console.log(`URL: ${requestUrl}`);
+        console.log(`URL: ${apiEndpoint}`);
         console.log(`Method: GET`);
         console.log(`Headers: { "X-API-Key": "${apiKey.substring(0, 5)}..." }`);
 
@@ -446,22 +347,19 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
         const pollStartTime = Date.now();
         const pollLogId = logApiCall({
           method: "GET",
-          url: requestUrl,
+          url: apiEndpoint,
           headers: {
             "X-API-Key": "[REDACTED]",
             "Content-Type": "application/json",
           },
         });
 
-        // Simplified request headers
-        const headers = {
-          "X-API-Key": apiKey,
-          "Content-Type": "application/json",
-        };
-
-        const response = await fetch(requestUrl, {
+        const response = await fetch(apiEndpoint, {
           method: "GET",
-          headers: headers,
+          headers: {
+            "X-API-Key": apiKey,
+            "Content-Type": "application/json",
+          },
         });
 
         console.log(`Poll response status: ${response.status}`);
@@ -604,39 +502,6 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
           <ArrowLeft className="h-4 w-4" />
           Back to Agents
         </Button>
-        <div className="flex items-center gap-2">
-          <Label
-            htmlFor="useProxy"
-            className="text-sm font-medium cursor-pointer"
-          >
-            Use CORS Proxy
-          </Label>
-          <input
-            type="checkbox"
-            id="useProxy"
-            checked={useProxy}
-            onChange={(e) => setUseProxy(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
-                  <span className="h-4 w-4 rounded-full bg-gray-200 text-gray-700 text-xs flex items-center justify-center">
-                    ?
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                <p>
-                  Enable this option to use a CORS proxy to bypass browser
-                  security restrictions. This is recommended if you're
-                  experiencing connection issues.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -862,8 +727,7 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
                     <div className="mt-4 p-3 bg-gray-100 rounded-md text-xs font-mono overflow-auto max-h-[300px]">
                       <p className="font-semibold">API Call Logs:</p>
                       <p className="mt-1">
-                        Endpoint: {useProxy ? "Using CORS Proxy → " : ""}
-                        {API_BASE_URL}/agents/sales-contact-finder
+                        Endpoint: {API_BASE_URL}/agents/sales-contact-finder
                       </p>
                       <p className="mt-1">Method: POST</p>
                       <p className="mt-1">Headers:</p>
@@ -894,8 +758,7 @@ export default function LeadGenieAgent({ onBack }: LeadGenieAgentProps) {
                             Request ID: {requestId}
                           </p>
                           <p className="mt-1">
-                            Polling URL: {useProxy ? "Using CORS Proxy → " : ""}
-                            {API_BASE_URL}/task/{requestId}
+                            Polling URL: {API_BASE_URL}/task/{requestId}
                           </p>
                         </>
                       )}

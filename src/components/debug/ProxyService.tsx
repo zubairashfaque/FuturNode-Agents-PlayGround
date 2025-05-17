@@ -79,10 +79,18 @@ export default function ProxyService() {
         headers["X-API-Key"] = apiKey;
       }
 
+      // Validate JSON before sending
+      let parsedBody;
+      try {
+        parsedBody = JSON.parse(requestBody);
+      } catch (e) {
+        throw new Error("Invalid JSON in request body");
+      }
+
       const response = await fetch(proxyUrl, {
         method: "POST",
         headers,
-        body: requestBody,
+        body: requestBody, // Use the original string
       });
 
       console.log("Proxy response status:", response.status);

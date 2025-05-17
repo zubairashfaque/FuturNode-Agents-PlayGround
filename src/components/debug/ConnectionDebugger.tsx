@@ -49,13 +49,26 @@ export default function ConnectionDebugger() {
       console.log("Headers:", headers);
       console.log("Body:", body);
 
+      let parsedHeaders;
+      try {
+        parsedHeaders = JSON.parse(headers);
+      } catch (e) {
+        throw new Error("Invalid JSON in headers field");
+      }
+
       const requestOptions: RequestInit = {
         method,
-        headers: JSON.parse(headers),
+        headers: parsedHeaders,
       };
 
       if (method !== "GET" && method !== "HEAD") {
-        requestOptions.body = body;
+        try {
+          // Validate that body is valid JSON before using it
+          JSON.parse(body);
+          requestOptions.body = body;
+        } catch (e) {
+          throw new Error("Invalid JSON in request body");
+        }
       }
 
       const response = await fetch(url, requestOptions);
